@@ -1,0 +1,29 @@
+node_modules/
+.turbo/
+dist/
+build/
+.next/
+*.log
+.env
+.env.local
+.env.*.local
+.DS_Store
+coverage/
+.pnpm-store/
+out/
+*.tsbuildinfo
+
+# Foundry
+contracts/out/
+contracts/cache/
+contracts/broadcast/
+contracts/lib/
+
+# Go
+apps/api-gateway/tmp/
+apps/api-gateway/bin/
+
+# Secrets
+*.pem
+*.key
+.secrets/
