@@ -87,7 +87,7 @@ CrawlPay is made up of three services you run and two shared libraries you impor
 
 | Component | Role | Stack |
 |---|---|---|
-| `apps/facilitator` | Verifies payment signatures, submits them to Circle Nanopayments, and issues signed receipts. This is the hot path — everything routes through here. | Fastify, viem, Circle SDK |
+| `apps/facilitator` | Verifies payment signatures, submits them to Circle Nanopayments, and issues signed receipts. This is the hot path, everything routes through here. | Fastify, viem, Circle SDK |
 | `apps/api-gateway` | Read-only API for receipts, analytics, and the publisher catalog. Fires webhooks. | Go, Gin, Postgres |
 | `apps/web-dashboard` | Dashboard where publishers see their earnings and crawlers see their spend. | Next.js, TanStack Query |
 | `packages/proxy-middleware` | Drop-in middleware for Express, Fastify, or Next.js. Sends `402` responses and forwards payments to the facilitator. | TypeScript |
@@ -203,7 +203,7 @@ Receipts are permanent cryptographic evidence. Someone who has only the receipt,
 
 ## Versioning
 
-### v0 (current) — hackathon MVP
+### v0 (current) 
 
 - One facilitator, hosted by CrawlPay
 - Express middleware only
@@ -250,9 +250,9 @@ CrawlPay is not fully trustless and does not claim to be. The trust assumptions 
 ## Security considerations
 
 - **Replay protection.** Every EIP-3009 authorization carries a 32-byte nonce. The USDC contract enforces single-use through its `authorizationState` mapping. The facilitator tracks nonces too, rejecting replays before they hit the chain.
-- **Double-charging.** If a middleware forwarded the same authorization to two facilitators in parallel, only one would win — Circle Nanopayments rejects the second on the shared nonce.
+- **Double-charging.** If a middleware forwarded the same authorization to two facilitators in parallel, only one would win. Circle Nanopayments rejects the second on the shared nonce.
 - **Signature stripping.** Receipts are signed over a canonical JSON form with fixed field ordering. Any mutation invalidates the signature. Verifiers reject unknown fields.
-- **Facilitator compromise.** A compromised facilitator could issue fake receipts but cannot move anyone's funds — Nanopayments authorizations only route value to the publisher wallet specified in the original offer. It cannot replay on-chain.
+- **Facilitator compromise.** A compromised facilitator could issue fake receipts but cannot move anyone's funds. Nanopayments authorizations only route value to the publisher wallet specified in the original offer. It cannot replay on-chain.
 
 ## Repository layout
 
