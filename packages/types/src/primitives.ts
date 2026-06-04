@@ -63,3 +63,23 @@ export const NETWORK_TO_CAIP2: Record<Network, Caip2Network> = {
 export const NETWORK_TO_CHAIN_ID: Record<Network, number> = {
   arcTestnet: 5042002,
 };
+
+/**
+ * Circle Gateway facilitator API endpoints.
+ *
+ * The Circle SDK defaults to the mainnet URL for both `BatchFacilitatorClient`
+ * and `createGatewayMiddleware`. Talking to mainnet from a testnet client
+ * results in `"No payment networks available"` because mainnet's supported
+ * list doesn't include testnet chains.
+ *
+ * Source: dist/server/index.d.ts (@circle-fin/x402-batching@3.x).
+ */
+export const CIRCLE_GATEWAY_API_URL = {
+  mainnet: 'https://gateway-api.circle.com',
+  testnet: 'https://gateway-api-testnet.circle.com',
+} as const;
+
+/** Map a CrawlPay Network to the Circle Gateway API base URL it lives behind. */
+export const NETWORK_TO_GATEWAY_API_URL: Record<Network, string> = {
+  arcTestnet: CIRCLE_GATEWAY_API_URL.testnet,
+};
