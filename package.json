@@ -11,6 +11,7 @@
     "typecheck": "turbo run typecheck",
     "smoke:seller": "pnpm --filter @crawlpay/smoke seller",
     "smoke:buyer": "pnpm --filter @crawlpay/smoke buyer",
+    "smoke:probe": "pnpm --filter @crawlpay/smoke probe",
     "demo": "tsx scripts/demo-crawl-session.ts",
     "seed": "tsx scripts/seed-publishers.ts"
   },
