@@ -27,3 +27,5 @@ apps/api-gateway/bin/
 *.pem
 *.key
 .secrets/
+
+PRD.md
