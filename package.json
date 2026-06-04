@@ -9,6 +9,8 @@
     "test": "turbo run test",
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",
+    "smoke:seller": "pnpm --filter @crawlpay/smoke seller",
+    "smoke:buyer": "pnpm --filter @crawlpay/smoke buyer",
     "demo": "tsx scripts/demo-crawl-session.ts",
     "seed": "tsx scripts/seed-publishers.ts"
   },
