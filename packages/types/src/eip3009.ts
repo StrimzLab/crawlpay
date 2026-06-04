@@ -53,8 +53,14 @@ export const TRANSFER_WITH_AUTHORIZATION_TYPES = {
   ],
 } as const;
 
-/** Minimum validity window required by Gateway: 3 days in seconds. */
-export const GATEWAY_MIN_VALIDITY_SECONDS = 3 * 24 * 60 * 60;
+/**
+ * Minimum validity window required by Gateway.
+ *
+ * The static manual-signing docs say "at least 3 days," but the live testnet
+ * `getSupported()` response advertises `minValiditySeconds: 604800` (7 days)
+ * — verified via probe on 2026-06-04. Use 7 days as the actual floor.
+ */
+export const GATEWAY_MIN_VALIDITY_SECONDS = 7 * 24 * 60 * 60;
 
-/** Default validity window we use when constructing authorizations: 5 days. */
-export const DEFAULT_VALIDITY_SECONDS = 5 * 24 * 60 * 60;
+/** Default validity window we use when constructing authorizations (1 day above the floor). */
+export const DEFAULT_VALIDITY_SECONDS = 8 * 24 * 60 * 60;
