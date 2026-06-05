@@ -7,3 +7,13 @@ export { PostgresReceiptRepository } from './receipts/postgres';
 export type { NonceTracker } from './nonces/interface';
 export { MemoryNonceTracker } from './nonces/memory';
 export { RedisNonceTracker } from './nonces/redis';
+
+export {
+  PublisherAlreadyExistsError,
+  type CreatePublisherInput,
+  type PublisherFilter,
+  type PublisherRecord,
+  type PublisherRepository,
+} from './publishers/interface';
+export { MemoryPublisherRepository } from './publishers/memory';
+export { PostgresPublisherRepository } from './publishers/postgres';
