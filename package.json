@@ -15,6 +15,7 @@
     "migrate": "pnpm --filter @crawlpay/persistence migrate",
     "infra:up": "docker compose -f infra/docker-compose.yml up -d",
     "infra:down": "docker compose -f infra/docker-compose.yml down",
+    "infra:reset": "docker compose -f infra/docker-compose.yml down -v",
     "infra:logs": "docker compose -f infra/docker-compose.yml logs -f",
     "demo": "tsx scripts/demo-crawl-session.ts",
     "seed": "tsx scripts/seed-publishers.ts"
