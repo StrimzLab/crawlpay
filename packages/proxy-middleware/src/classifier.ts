@@ -81,7 +81,11 @@ export class DefaultBotClassifier implements BotClassifier {
       }
     }
 
-    if (/\b(bot|crawler|spider)\b/i.test(ua)) {
+    // Match `bot|crawler|spider` at a real boundary: start-of-string, any
+    // non-word char, or a lowercase→uppercase camelCase transition (so
+    // `AcmeContentSpider/1.0` still triggers). Trailing `\b` keeps `robots.txt`
+    // and other substrings from misfiring.
+    if (/(?:^|[\W_]|[a-z])(?:bot|crawler|spider)\b/i.test(ua)) {
       return { isCrawler: true, confidence: 0.7, reason: 'ua-generic-bot-suffix' };
     }
 
