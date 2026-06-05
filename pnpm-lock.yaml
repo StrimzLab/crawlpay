@@ -24,6 +24,68 @@ importers:
         specifier: ^5.4.0
         version: 5.9.3
 
+  packages/crawler-sdk:
+    dependencies:
+      '@circle-fin/x402-batching':
+        specifier: latest
+        version: 3.0.4(@x402/core@2.14.0)(@x402/evm@2.14.0(typescript@5.9.3))(viem@2.52.0(typescript@5.9.3)(zod@3.25.76))
+      '@crawlpay/receipt-signer':
+        specifier: workspace:*
+        version: link:../receipt-signer
+      '@crawlpay/types':
+        specifier: workspace:*
+        version: link:../types
+      '@x402/core':
+        specifier: latest
+        version: 2.14.0
+      '@x402/evm':
+        specifier: latest
+        version: 2.14.0(typescript@5.9.3)
+      viem:
+        specifier: ^2.52.0
+        version: 2.52.0(typescript@5.9.3)(zod@3.25.76)
+    devDependencies:
+      typescript:
+        specifier: ^5.4.0
+        version: 5.9.3
+      vitest:
+        specifier: ^1.6.0
+        version: 1.6.1(@types/node@20.19.39)
+
+  packages/proxy-middleware:
+    dependencies:
+      '@circle-fin/x402-batching':
+        specifier: latest
+        version: 3.0.4(@x402/core@2.14.0)(@x402/evm@2.14.0(typescript@5.9.3))(viem@2.52.0(typescript@5.9.3)(zod@3.25.76))
+      '@crawlpay/receipt-signer':
+        specifier: workspace:*
+        version: link:../receipt-signer
+      '@crawlpay/types':
+        specifier: workspace:*
+        version: link:../types
+      '@x402/core':
+        specifier: latest
+        version: 2.14.0
+      '@x402/evm':
+        specifier: latest
+        version: 2.14.0(typescript@5.9.3)
+      viem:
+        specifier: ^2.52.0
+        version: 2.52.0(typescript@5.9.3)(zod@3.25.76)
+    devDependencies:
+      '@types/express':
+        specifier: ^4.17.0
+        version: 4.17.25
+      express:
+        specifier: ^4.19.0
+        version: 4.22.2
+      typescript:
+        specifier: ^5.4.0
+        version: 5.9.3
+      vitest:
+        specifier: ^1.6.0
+        version: 1.6.1(@types/node@20.19.39)
+
   packages/receipt-signer:
     dependencies:
       '@crawlpay/types':
