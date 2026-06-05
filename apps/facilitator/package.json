@@ -13,11 +13,14 @@
   },
   "dependencies": {
     "@circle-fin/x402-batching": "latest",
+    "@crawlpay/persistence": "workspace:*",
     "@crawlpay/receipt-signer": "workspace:*",
     "@crawlpay/types": "workspace:*",
     "@x402/core": "latest",
     "@x402/evm": "latest",
     "fastify": "^4.27.0",
+    "ioredis": "^5.4.0",
+    "pg": "^8.11.0",
     "pino": "^9.0.0",
     "pino-pretty": "^11.0.0",
     "viem": "^2.52.0"

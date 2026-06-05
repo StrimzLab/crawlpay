@@ -6,6 +6,10 @@ export interface FacilitatorConfig {
   network: Network;
   gatewayApiUrl: string;
   receiptSigningKey: Hex;
+  /** When set, the facilitator uses PostgresReceiptRepository instead of memory. */
+  databaseUrl?: string;
+  /** When set, the facilitator uses RedisNonceTracker instead of memory. */
+  redisUrl?: string;
 }
 
 const SUPPORTED_NETWORKS: readonly Network[] = ['arcTestnet'];
@@ -43,5 +47,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): FacilitatorCon
     network,
     gatewayApiUrl,
     receiptSigningKey: receiptSigningKey as Hex,
+    databaseUrl: env.DATABASE_URL || undefined,
+    redisUrl: env.REDIS_URL || undefined,
   };
 }

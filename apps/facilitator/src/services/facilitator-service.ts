@@ -15,9 +15,8 @@ import {
   type PaymentPayload,
   type PaymentRequirement,
 } from '@crawlpay/types';
+import type { NonceTracker, ReceiptRepository } from '@crawlpay/persistence';
 import type { CircleFacilitator } from './circle-facilitator';
-import type { NonceTracker } from './nonce-tracker';
-import type { ReceiptRepository } from './receipt-repository';
 
 export interface VerifyInput {
   publisherId: string;
