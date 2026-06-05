@@ -12,6 +12,11 @@
     "smoke:seller": "pnpm --filter @crawlpay/smoke seller",
     "smoke:buyer": "pnpm --filter @crawlpay/smoke buyer",
     "smoke:probe": "pnpm --filter @crawlpay/smoke probe",
+    "migrate": "pnpm --filter @crawlpay/persistence migrate",
+    "infra:up": "docker compose -f infra/docker-compose.yml up -d",
+    "infra:down": "docker compose -f infra/docker-compose.yml down",
+    "infra:reset": "docker compose -f infra/docker-compose.yml down -v",
+    "infra:logs": "docker compose -f infra/docker-compose.yml logs -f",
     "demo": "tsx scripts/demo-crawl-session.ts",
     "seed": "tsx scripts/seed-publishers.ts"
   },

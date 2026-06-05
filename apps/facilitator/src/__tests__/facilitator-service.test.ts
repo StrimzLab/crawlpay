@@ -3,10 +3,9 @@ import { generatePrivateKey } from 'viem/accounts';
 import type { Address, Hex } from 'viem';
 import { PrivateKeyReceiptSigner, verifyReceipt } from '@crawlpay/receipt-signer';
 import type { PaymentPayload, PaymentRequirement } from '@crawlpay/types';
+import { MemoryNonceTracker, MemoryReceiptRepository } from '@crawlpay/persistence';
 import type { CircleFacilitator, SettleResult } from '../services/circle-facilitator';
 import { FacilitatorService } from '../services/facilitator-service';
-import { MemoryNonceTracker } from '../services/nonce-tracker';
-import { MemoryReceiptRepository } from '../services/receipt-repository';
 
 const PUBLISHER = '0x1111111111111111111111111111111111111111' as Address;
 const CRAWLER = '0x2222222222222222222222222222222222222222' as Address;

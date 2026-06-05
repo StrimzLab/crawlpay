@@ -1,23 +1,11 @@
 import type { Hex } from '@crawlpay/types';
+import type { NonceTracker } from './interface';
 
 /**
- * Replay-protection store for EIP-3009 authorization nonces.
+ * In-process nonce tracker. Safe for single-instance deployments and tests.
+ * Multi-process / multi-instance deployments must use RedisNonceTracker.
  *
- * The contract: `reserve` is atomic — only one caller can succeed for a given
- * nonce. Production implementations back this with Redis SETNX or an INSERT
- * with UNIQUE constraint.
- */
-export interface NonceTracker {
-  /** Returns true if newly reserved, false if the nonce was already seen. */
-  reserve(nonce: Hex, expiresAtUnix: number): Promise<boolean>;
-  isUsed(nonce: Hex): Promise<boolean>;
-  /** Manual release — rarely needed outside tests. */
-  release(nonce: Hex): Promise<void>;
-}
-
-/**
- * In-process nonce tracker. Suitable for single-instance deployments and tests.
- * Sweeps expired entries lazily on every operation.
+ * Expired entries are swept lazily on every operation. No background timer.
  */
 export class MemoryNonceTracker implements NonceTracker {
   readonly #entries = new Map<Hex, number>();
