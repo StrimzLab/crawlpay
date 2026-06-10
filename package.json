@@ -3,6 +3,8 @@
   "version": "0.0.1",
   "private": true,
   "description": "Open pay-per-crawl infrastructure on Arc + Nanopayments",
+  "license": "Apache-2.0",
+  "author": "Emmanuel Omemgboji",
   "scripts": {
     "dev": "turbo run dev",
     "build": "turbo run build",
@@ -12,13 +14,15 @@
     "smoke:seller": "pnpm --filter @crawlpay/smoke seller",
     "smoke:buyer": "pnpm --filter @crawlpay/smoke buyer",
     "smoke:probe": "pnpm --filter @crawlpay/smoke probe",
+    "web:dev": "pnpm --filter @crawlpay/web-dashboard dev",
+    "web:build": "pnpm --filter @crawlpay/web-dashboard build",
+    "web:start": "pnpm --filter @crawlpay/web-dashboard start",
     "migrate": "pnpm --filter @crawlpay/persistence migrate",
     "infra:up": "docker compose -f infra/docker-compose.yml up -d",
     "infra:down": "docker compose -f infra/docker-compose.yml down",
     "infra:reset": "docker compose -f infra/docker-compose.yml down -v",
     "infra:logs": "docker compose -f infra/docker-compose.yml logs -f",
-    "demo": "tsx scripts/demo-crawl-session.ts",
-    "seed": "tsx scripts/seed-publishers.ts"
+    "demo": "pnpm --filter @crawlpay/demo demo"
   },
   "devDependencies": {
     "turbo": "^2.0.0",
@@ -30,5 +34,19 @@
   "packageManager": "pnpm@9.0.0",
   "engines": {
     "node": ">=20.0.0"
+  },
+  "pnpm": {
+    "peerDependencyRules": {
+      "_comment": "Privy + @reown/appkit pull in Solana support we don't use; suppress its unmet-peer noise without weakening strict mode for the rest of the tree.",
+      "ignoreMissing": [
+        "@solana/kit",
+        "@solana-program/token",
+        "@solana-program/system",
+        "utf-8-validate"
+      ],
+      "allowedVersions": {
+        "utf-8-validate": "*"
+      }
+    }
   }
 }
