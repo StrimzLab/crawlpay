@@ -1,183 +1,178 @@
 # CrawlPay
 
-[![License: BUSL 1.1](https://img.shields.io/badge/license-BUSL--1.1-blue.svg)](./LICENSE)
+[![License: Apache 2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](./LICENSE)
 [![Node](https://img.shields.io/badge/node-%3E%3D20-339933?logo=node.js&logoColor=white)](https://nodejs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.4-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org)
-[![Hackathon](https://img.shields.io/badge/Agentic%20Economy%20on%20Arc-Apr%2020--26-ff6b35)](https://lablab.ai/ai-hackathons/nano-payments-arc)
+[![pnpm](https://img.shields.io/badge/pnpm-9-F69220?logo=pnpm&logoColor=white)](https://pnpm.io)
 
-[![Built on Arc](https://img.shields.io/badge/Built%20on-Arc-000000)](https://arc.network)
-[![Circle Nanopayments](https://img.shields.io/badge/Circle-Nanopayments-29B6F6)](https://circle.com/nanopayments)
-[![USDC](https://img.shields.io/badge/Settled%20in-USDC-2775CA)](https://www.circle.com/usdc)
-[![x402](https://img.shields.io/badge/Protocol-x402-6c47ff)](https://x402.org)
-[![EIP-3009](https://img.shields.io/badge/EIP--3009-signed%20authorizations-627EEA)](https://eips.ethereum.org/EIPS/eip-3009)
-[![ERC-8004](https://img.shields.io/badge/ERC--8004-agent%20reputation-8247e5)](https://eips.ethereum.org/EIPS/eip-8004)
+Open-source pay-per-crawl infrastructure for the open web. Publishers charge AI crawlers per URL fetched in USDC at sub-cent prices; every fetch produces a portable cryptographically-signed receipt. Authorizations are aggregated off-chain by **Circle Gateway** and settled in batches on **Arc L1**.
 
-**Pay-per-crawl infrastructure for the open web.**
+Built on **x402 v2**, **EIP-3009**, and **ERC-8004**.
 
-Publishers charge AI crawlers per page. Crawlers pay in USDC per request and receive a signed receipt as proof they accessed the content legitimately. Payments are aggregated off-chain by [Circle Nanopayments](https://circle.com/nanopayments) and finalized on [Arc](https://arc.network).
+## Table of contents
 
-[Architecture](./docs/architecture.md) · [Protocol](./docs/protocol.md) · [Publisher Guide](./docs/publishers.md) · [Crawler Guide](./docs/crawlers.md) · [Contributing](./CONTRIBUTING.md)
+- [Problem and approach](#problem-and-approach)
+- [Architecture](#architecture)
+- [Protocol flow](#protocol-flow)
+- [Receipt model](#receipt-model)
+- [Tech stack](#tech-stack)
+- [Repository layout](#repository-layout)
+- [Getting started](#getting-started)
+- [Documentation](#documentation)
+- [Roadmap](#roadmap)
+- [License](#license)
+- [References](#references)
 
----
+## Problem and approach
 
-## Overview
+The web's economic model assumes humans. Humans browse slowly, click ads occasionally, sometimes subscribe. AI crawlers don't. A single research bot can fetch a million pages a week. At that volume, ad-supported sites are uneconomical (crawlers don't see ads), subscription-only sites are inflexible (they overcharge tiny readers and undercharge industrial bots), and outright blocking leaves money on the table while pushing crawlers to scrape harder. The economically right answer is **per-fetch pricing as small as $0.0001**.
 
-CrawlPay is a protocol and a working implementation for charging AI agents to access web content. It is built on three open standards:
+No existing payment rail makes that viable. Stripe's flat $0.30 minimum is a 300,000% fee on a $0.0001 charge. PayPal and Lemon Squeezy are worse. Cloudflare's Pay-Per-Crawl exists but is gated to enterprise customers behind a sales call. The whole long tail of the web — small publishers, indie news sites, niche research databases — has no option.
 
-- **[x402](https://x402.org)** — the HTTP-native payment standard that uses the long-dormant `402 Payment Required` status code
-- **[EIP-3009](https://eips.ethereum.org/EIPS/eip-3009)** — enables gasless USDC transfers via off-chain signatures.
-- **[ERC-8004](https://eips.ethereum.org/EIPS/eip-8004)** — a standard for agent identity and reputation
+CrawlPay collapses per-payment cost to near-zero by combining three things:
 
-The problem CrawlPay exists to solve is simple. A human reads a few pages a day. An AI crawler reads hundreds of thousands. At that scale, flat subscriptions either overcharge small users or undercharge heavy ones, and blocking crawlers outright leaves money on the table for publishers and kills access for crawlers that would happily pay. CrawlPay replaces both with per-request pricing as small as a fraction of a cent, settled continuously in the background.
+- **EIP-3009 (`TransferWithAuthorization`)** — the crawler signs an off-chain USDC authorization in a single EIP-712 message. No gas, no transaction submitted, costs literally nothing.
+- **Circle Gateway** — aggregates thousands of those authorizations across publishers and crawlers, then settles them in a single batched on-chain transaction every few minutes.
+- **Arc L1** — Circle's purpose-built chain where USDC is the native gas token, with sub-second deterministic finality and dollar-denominated fees. No separate gas asset to hold; no probabilistic confirmations to wait on.
 
-## Design principles
+The protocol layer is **x402 v2**: a CrawlPay-protected URL returns a standard `402 Payment Required` with a JSON offer when called without payment, and a standard `200 OK` with a signed receipt in the response header when payment is presented. There is no new protocol to learn — anything that doesn't care still sees a URL, a status code, and a body. Crawlers that do care install one SDK and pay transparently.
 
-1. **HTTP-native.** A CrawlPay-protected URL looks like any other URL. A client that doesn't want to pay gets a standard `402 Payment Required` response with a machine-readable payment offer. There is no new protocol to learn and no client-side handshake beyond a signed header.
-2. **Publisher sovereignty.** Publishers set their own prices, decide which crawlers can access their content, and choose where payouts go. CrawlPay never holds publisher funds beyond the short window Circle needs to batch payments.
-3. **Portable receipts.** Every paid fetch produces a cryptographically signed receipt. The receipt is valid proof of access anywhere (in an audit, in court, in a reputation system), not just inside CrawlPay.
-4. **Minimal trust surface.** A publisher can self-host the full stack. The hosted version of CrawlPay is a convenience, not a requirement.
+Every paid fetch produces a **portable, cryptographically signed receipt** that proves payment occurred — verifiable by anyone with the receipt and the facilitator's public key, no access to CrawlPay's database required. Receipts double as audit logs, billing records, and (in v2) as input to a reputation system that lets publishers gate access on crawler payment history.
 
-## System architecture
+## Architecture
 
-CrawlPay is made up of three services you run and two shared libraries you import.
+CrawlPay separates concerns across three planes — **data**, **settlement**, and **control** — so that no single plane's failure modes block the others. The data plane handles HTTP fetches and never blocks on settlement; the settlement plane batches authorizations off-chain and settles asynchronously; the control plane handles dashboards, auth, and on-chain reads, and is read-only relative to the hot path.
 
-```text
-┌────────────────────────────────────────────────────────────────────────────┐
-│                              Data plane                                    │
-│                                                                            │
-│  ┌───────────┐  HTTP GET   ┌──────────────────┐   POST /verify             │
-│  │  Crawler  │────────────▶│  Publisher site  │──────────────┐             │
-│  │  + SDK    │             │  + middleware    │              │             │
-│  └─────┬─────┘ 402 + offer └────────┬─────────┘              ▼             │
-│        │                            │                ┌───────────────┐     │
-│        │     X-PAYMENT (EIP-3009)   │                │  Facilitator  │     │
-│        └────────────────────────────┘                │  (x402 +      │     │
-│                                     ▲                │   Nanopymnts) │     │
-│                                     │                └───────┬───────┘     │
-│                                     │  content +             │             │
-│                                     │  X-PAYMENT-RESPONSE    │             │
-│                                     └────────────────────────┘             │
-└────────────────────────────────────────────────────────────────────────────┘
-                                                                │
-                                                                │ signed auth
-                                                                ▼
-┌────────────────────────────────────────────────────────────────────────────┐
-│                            Settlement plane                                │
-│                                                                            │
-│   Circle Nanopayments  ── aggregates offchain ──▶  batch submit            │
-│                                                       │                    │
-│                                                       ▼                    │
-│                                            Arc L1 (EVM, USDC gas)          │
-│                                                                            │
-└────────────────────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TB
+  subgraph DATA["Data plane"]
+    direction LR
+    C["Crawler<br/><code>@crawlpay/crawler-sdk</code>"]
+    P["Publisher site<br/><code>@crawlpay/proxy-middleware</code>"]
+    F["Facilitator<br/><code>apps/facilitator</code>"]
+    C -->|"GET /article"| P
+    P -.->|"402 + offer"| C
+    C -->|"Payment-Signature"| P
+    P -->|"verify + settle"| F
+    F -.->|"signed receipt"| P
+    P -.->|"200 + Payment-Response"| C
+  end
 
-┌────────────────────────────────────────────────────────────────────────────┐
-│                             Control plane                                  │
-│                                                                            │
-│   ┌────────────────┐     ┌─────────────────────┐    ┌────────────────┐     │
-│   │  API gateway   │◀────│  Web dashboard      │───▶│  ERC-8004      │     │
-│   │  (catalog,     │     │  (publishers +      │    │  (Identity +   │     │
-│   │   receipts,    │     │   crawlers)         │    │   Reputation)  │     │
-│   │   analytics)   │     │                     │    │                │     │
-│   └────────────────┘     └─────────────────────┘    └────────────────┘     │
-└────────────────────────────────────────────────────────────────────────────┘
+  subgraph SETTLE["Settlement plane"]
+    direction LR
+    GW["Circle Gateway<br/>off-chain batching<br/>(@circle-fin/x402-batching)"]
+    ARC["Arc L1<br/>USDC gas · 1-block finality"]
+    F -->|"EIP-3009 auth"| GW
+    GW -->|"batch settle"| ARC
+  end
+
+  subgraph CONTROL["Control plane"]
+    direction LR
+    API["<code>apps/api-gateway</code><br/>receipts · analytics · auth · probe"]
+    WEB["<code>apps/web-dashboard</code><br/>Next.js · TanStack Query · Privy"]
+    DB[("Postgres<br/>receipts · publishers")]
+    R[("Redis<br/>nonces · sessions")]
+    E8004["ERC-8004 registries<br/>(Arc Testnet)"]
+    F -->|"insert receipt"| DB
+    API -->|"read"| DB
+    API -->|"sessions + nonces"| R
+    API -->|"on-chain read"| E8004
+    WEB -->|"/api/* rewrite"| API
+  end
+
+  classDef plane fill:#0F141A,stroke:#558A9F,color:#E5E5E5,stroke-width:1px
+  class DATA,SETTLE,CONTROL plane
 ```
 
-### Components
+**Data plane.** A single paid fetch never blocks on settlement. The crawler's SDK signs an EIP-3009 authorization, the publisher's middleware forwards it to the facilitator, the facilitator gets a synchronous response from Circle Gateway (a transfer UUID — Gateway has accepted the authorization into a batch), then signs and returns the `CrawlPayReceipt` in the response. The crawler has its content. End-to-end latency in the smoke test: **~1970 ms** against real Gateway testnet — dominated by the Gateway round-trip, not the chain.
 
-| Component | Role | Stack |
-|---|---|---|
-| `apps/facilitator` | Verifies payment signatures, submits them to Circle Nanopayments, and issues signed receipts. This is the hot path, everything routes through here. | Fastify, viem, Circle SDK |
-| `apps/api-gateway` | Read-only API for receipts, analytics, and the publisher catalog. Fires webhooks. | Go, Gin, Postgres |
-| `apps/web-dashboard` | Dashboard where publishers see their earnings and crawlers see their spend. | Next.js, TanStack Query |
-| `packages/proxy-middleware` | Drop-in middleware for Express, Fastify, or Next.js. Sends `402` responses and forwards payments to the facilitator. | TypeScript |
-| `packages/crawler-sdk` | SDK that crawlers install. Intercepts HTTP requests, signs payment authorizations, handles retries, stores receipts. | TypeScript |
-| `packages/receipt-signer` | The library that signs and verifies receipts. Used by the facilitator (to sign) and by the dashboard and auditors (to verify). | TypeScript |
-| `packages/types` | Shared TypeScript types. Every package imports from here. | TypeScript |
-| `contracts` | On-chain helpers for registering publishers and crawlers in ERC-8004 registries. | Solidity, Foundry |
+**Settlement plane.** This is what Circle Gateway provides. Off-chain, Gateway aggregates authorizations from many publishers and many crawlers and settles them all in a single Arc transaction every few minutes. Gas cost amortizes across the entire batch, which is what makes sub-cent pricing economically viable in the first place. The on-chain tx hash backfills into `receipt.onchainTxHash` via a settlement worker (v0.1) once the batch lands — but the receipt itself is final the moment the facilitator signs it. The dashboard's `Verify signature` button doesn't need the on-chain hash to confirm a receipt is valid.
+
+**Control plane.** Read-mostly. The api-gateway serves receipt and analytics queries from Postgres, gates write paths behind SIWE-backed cookie sessions, reads ERC-8004 reputation from the Arc Testnet registries via viem, and runs the integration probe (server-side fetch of a publisher's domain to check the middleware's wired up). Publisher onboarding (`POST /publishers`) is the only write surface, and it's gated on a signed-in session whose address becomes the publisher's settlement wallet — clients can't claim to be wallets they don't control. The api-gateway never touches the hot path; if it's down, fetches and Gateway settlements keep working.
+
+The web dashboard is a Next.js client that talks to the api-gateway via a same-origin `/api/*` rewrite, which keeps the session cookie's `SameSite=Lax` constraint simple. Privy provides embedded wallets for publisher onboarding (social login generates a wallet without a browser extension); after Privy connects, the dashboard runs the SIWE flow to issue a cookie session. The crawler side stays bring-your-own-EOA — crawlers are developers and already manage signing keys.
 
 ## Protocol flow
 
-A single paid crawl has five steps.
+CrawlPay's protocol is **x402 v2**: a publisher's middleware emits a `402 Payment Required` with a JSON offer; the crawler signs an EIP-3009 authorization scoped to that offer; the publisher's middleware forwards the signed payload to Circle Gateway via the facilitator and returns the content with a signed receipt header. The whole sequence is one HTTP round-trip plus an asynchronous settlement that happens later.
 
-### 1. Discovery
+```mermaid
+sequenceDiagram
+  autonumber
+  participant C as Crawler<br/>(crawler-sdk)
+  participant P as Publisher<br/>(proxy-middleware)
+  participant F as Facilitator
+  participant G as Circle Gateway
+  participant A as Arc L1
 
-The crawler makes a normal HTTP request, with no payment header:
+  C->>P: GET /article (no payment)
+  P-->>C: 402 + x402v2 offer<br/>(scheme, network, payTo, amount)
 
-```http
-GET /articles/how-circle-built-arc HTTP/1.1
-Host: example-publisher.com
-User-Agent: ExampleBot/1.0
+  Note over C: Construct EIP-3009<br/>TransferWithAuthorization<br/>Sign with EOA key
+
+  C->>P: GET /article<br/>Payment-Signature: base64(payload)
+  P->>F: settle(payload, requirements)
+  F->>G: BatchFacilitatorClient.settle()
+  G-->>F: { transferId, payer, amount }
+
+  Note over F: Sign CrawlPayReceipt<br/>(canonical JSON + ECDSA)
+
+  F-->>P: { transferId, receipt }
+  P-->>C: 200 OK<br/>Payment-Response: base64(receipt)
+
+  Note over G,A: Async (minutes later)
+  G->>A: batch settle (1 tx, N authorizations)
+  A-->>G: tx hash
+  Note over F: Settlement worker backfills<br/>receipt.onchainTxHash
 ```
 
-### 2. Payment offer
+### Phase details
 
-The publisher's middleware looks at the User-Agent, reverse DNS, and IP reputation. If it decides this is a crawler and not a human, it responds with an x402 payment requirement:
+**Phase 1 — Discovery.** Crawler sends a plain `GET`. No payment headers. To a browser or anything that doesn't speak x402, this is an ordinary request.
 
-```http
-HTTP/1.1 402 Payment Required
-Content-Type: application/json
+**Phase 2 — Offer.** Middleware classifies the request (User-Agent heuristics, optional IP reputation) and either lets it through (humans free) or returns a 402 with an x402 v2 offer:
 
+```json
 {
-  "x402Version": 1,
+  "x402Version": 2,
   "accepts": [{
     "scheme": "exact",
-    "network": "arc-testnet",
+    "network": "arcTestnet",
     "maxAmountRequired": "100",
-    "resource": "https://example-publisher.com/articles/...",
-    "payTo": "0xPublisher...",
+    "payTo": "0xPublisher…",
     "asset": "0x3600000000000000000000000000000000000000",
-    "maxTimeoutSeconds": 30,
     "extra": {
-      "name": "USDC",
-      "version": "2",
-      "crawlpay_publisher_id": "pub_abc123"
+      "name": "GatewayWalletBatched",
+      "version": "1",
+      "crawlpay_publisher_id": "pub_techNotes"
     }
   }]
 }
 ```
 
-`maxAmountRequired` is in USDC atomic units. USDC has 6 decimals, so `100` means $0.0001.
+`maxAmountRequired` is atomic USDC (6 decimals): `100` = $0.0001. The `extra` block carries the EIP-712 domain hints the crawler needs to sign correctly. The `accepts` array allows multiple schemes per resource; v0 advertises only the Gateway `exact` scheme on Arc.
 
-### 3. Signed authorization
+**Phase 3 — Authorization.** Crawler constructs an [EIP-3009](https://eips.ethereum.org/EIPS/eip-3009) `TransferWithAuthorization` and signs it. Several constraints trip people up — they're all enforced by Circle Gateway:
 
-The crawler builds an [EIP-3009](https://eips.ethereum.org/EIPS/eip-3009) `TransferWithAuthorization` message, signs it with its wallet key (or through [EIP-1271](https://eips.ethereum.org/EIPS/eip-1271) for smart contract accounts), and retries the request:
+| Field | Value | Why |
+|---|---|---|
+| Domain `name` | `GatewayWalletBatched` | Not `USD Coin` — Gateway uses its own EIP-712 domain |
+| Domain `version` | `"1"` | Not `"2"` |
+| Domain `verifyingContract` | GatewayWallet address (`0x0077777d7EBA4688BDeF3E311b846F25870A19B9` on Arc Testnet) | Not the USDC token address |
+| `chainId` | `5042002` (Arc Testnet EVM chain ID) | Not Gateway's domain ID (26) |
+| `validBefore` | ≥ 7 days in the future | Gateway testnet enforces `minValiditySeconds = 604800` |
+| Signer | **EOA only** | Gateway uses `ecrecover`; ERC-1271 / EIP-6492 signatures are rejected |
+| `nonce` | 32 random bytes | Single-use; tracked by USDC contract's `authorizationState` mapping |
 
-```http
-GET /articles/how-circle-built-arc HTTP/1.1
-Host: example-publisher.com
-X-PAYMENT: eyJhdXRob3JpemF0aW9uIjp7ImZyb20iOiIweC4uLiJ9LCJzaWduYXR1cmUiOiIweC4uLiJ9
-```
+The signed payload is base64-JSON and sent in the **`Payment-Signature`** header (the x402 v2 name; not the older `X-PAYMENT`).
 
-The `X-PAYMENT` header is a base64-encoded JSON object containing the signed authorization and scheme metadata.
+**Phase 4 — Verification and settlement.** Middleware forwards to the facilitator. The facilitator uses Circle's `BatchFacilitatorClient.settle()`, which validates the signature, enqueues the authorization into the next batch, and returns a **transfer UUID** synchronously. The transfer UUID is not an Arc tx hash — the actual on-chain hash lands when the batch settles minutes later. Returning synchronously is what makes the data plane fast; the trade-off is that `receipt.onchainTxHash` is empty for a short window after settlement.
 
-### 4. Verification and settlement
-
-The publisher's middleware forwards the authorization to the facilitator at `POST /verify`. The facilitator then:
-
-1. Recovers the signer address from the EIP-712 typed-data signature
-2. Checks `from`, `to`, `value`, `validAfter`, `validBefore`, and `nonce`
-3. Submits the authorization to Circle Nanopayments for off-chain aggregation
-4. Issues a signed `CrawlPayReceipt`
-
-Circle Nanopayments batches thousands of these authorizations off-chain and settles them on Arc in a single on-chain transaction every few minutes. The publisher gets instant confirmation from the facilitator; final on-chain settlement happens in the background.
-
-### 5. Content delivery
-
-The middleware returns the page with a receipt in the response header:
-
-```http
-HTTP/1.1 200 OK
-X-PAYMENT-RESPONSE: eyJyZWNlaXB0Ijp7InZlcnNpb24iOiIxIi4uLn0sInNpZ25hdHVyZSI6IjB4Li4uIn0=
-Content-Type: text/html
-
-<!DOCTYPE html>
-...
-```
+**Phase 5 — Delivery.** Middleware returns `200` + the signed `CrawlPayReceipt` in the **`Payment-Response`** header (x402 v2 name; not `X-PAYMENT-RESPONSE`). The crawler verifies the signature locally (it has the facilitator's public key), confirms the URL and amount match what it requested, then uses the body.
 
 ## Receipt model
 
-Every paid fetch produces a `CrawlPayReceipt`:
+Every paid fetch produces a `CrawlPayReceipt` — portable cryptographic evidence:
 
 ```typescript
 interface CrawlPayReceipt {
@@ -185,121 +180,155 @@ interface CrawlPayReceipt {
   publisherId: string;
   publisherWallet: `0x${string}`;
   crawlerWallet: `0x${string}`;
-  crawlerAgentId?: string;        // ERC-8004 agent NFT id
+  crawlerAgentId?: string;          // ERC-8004 agent tokenId, if registered
   url: string;
-  urlHash: `0x${string}`;         // sha256(url || '\n' || timestamp)
-  amount: string;                 // atomic USDC
+  urlHash: `0x${string}`;           // sha256(url + '\n' + timestamp)
+  amount: string;                   // atomic USDC (stringified bigint)
   currency: 'USDC';
-  network: string;                // 'arc-mainnet' | 'arc-testnet'
+  network: 'arcTestnet';
   authorizationNonce: `0x${string}`;
-  timestamp: number;
-  batchId?: string;               // set after Nanopayments batches
-  onchainTxHash?: `0x${string}`;  // set after Arc settlement
-  signature: `0x${string}`;       // facilitator's signature over the fields above
+  timestamp: number;                // unix seconds
+  facilitatorPubkey: `0x${string}`;
+  batchId?: string;                 // Gateway transfer UUID
+  onchainTxHash?: `0x${string}`;    // set by the settlement worker after batch lands
+  signature: `0x${string}`;         // ECDSA over the canonicalized body
 }
 ```
 
-Receipts are permanent cryptographic evidence. Someone who has only the receipt, the facilitator's public key, and a connection to an Arc RPC node can verify on their own that a specific crawler paid a specific amount for a specific URL at a specific time. No access to CrawlPay's database required.
+Receipts sign over a **canonical JSON form** with lexicographic key ordering and stable number serialization. Any field mutation invalidates the signature. The verifier rejects unknown fields, so adding metadata is a versioning event (`version: '2'`) — old receipts stay verifiable forever. Verification is `keccak256(canonicalize(body))` + `ecrecover` against the facilitator's public key; the dashboard's **Verify signature** button does exactly that via `POST /receipts/verify`.
 
-## Versioning
+## Tech stack
 
-### v0 (current) 
-
-- One facilitator, hosted by CrawlPay
-- Express middleware only
-- TypeScript crawler SDK only
-- Testnet only (Arc testnet + Circle Nanopayments testnet)
-- No ERC-8004 yet; flat per-publisher pricing
-- Postgres-backed receipt store
-- Demo dashboard
-
-### v1 — public beta
-
-- Python and Go middleware in addition to Node
-- Self-hostable facilitator (Docker image + Helm chart)
-- ERC-8004 Identity Registry support for publishers and crawlers
-- Pricing tiers: per-URL patterns, bulk discounts, reputation-based rates
-- Receipt exports (CSV, JSON) for accounting
-- Plugins for Ghost, WordPress, and Substack
-- Mainnet launch on Arc
-
-### v2 — reputation and discovery
-
-- ERC-8004 Reputation Registry scoring for publishers (uptime, reliability) and crawlers (payment history, robots.txt compliance)
-- Discovery API for crawlers to find publishers by topic, price range, and reputation
-- Validator network that attests to content authenticity through the ERC-8004 Validation Registry
-- Pooled pricing for groups of publishers using multi-sig payout contracts
-
-### v3 — cross-chain and deferred
-
-- Deferred payment scheme (per x402 v2) for trusted crawler relationships that want daily settlement instead of per-request
-- Cross-chain settlement through Circle CCTP for publishers who prefer payouts on Base or Ethereum
-- Streaming subscriptions as an alternative to per-request, for premium crawler partnerships
-
-## Trust model
-
-CrawlPay is not fully trustless and does not claim to be. The trust assumptions by component are:
-
-| Component | What you trust | How it's bounded |
-|---|---|---|
-| Circle Nanopayments | Circle holds batched funds during the short off-chain aggregation window | Same trust model as holding USDC; funds are not rehypothecated and are held in a TEE-backed custody setup |
-| Facilitator signature | You trust receipts signed by known facilitator keys | There is a public registry of facilitator keys, and publishers can run their own facilitator |
-| Publisher bot classification | Heuristics are imperfect; humans can be misclassified as crawlers and vice versa | Configurable per publisher; optional proof-of-personhood for edge cases |
-| Arc consensus | Sub-second finality, permissioned validator set | Matches the commercial, compliance-heavy nature of publisher–crawler transactions |
-
-## Security considerations
-
-- **Replay protection.** Every EIP-3009 authorization carries a 32-byte nonce. The USDC contract enforces single-use through its `authorizationState` mapping. The facilitator tracks nonces too, rejecting replays before they hit the chain.
-- **Double-charging.** If a middleware forwarded the same authorization to two facilitators in parallel, only one would win. Circle Nanopayments rejects the second on the shared nonce.
-- **Signature stripping.** Receipts are signed over a canonical JSON form with fixed field ordering. Any mutation invalidates the signature. Verifiers reject unknown fields.
-- **Facilitator compromise.** A compromised facilitator could issue fake receipts but cannot move anyone's funds. Nanopayments authorizations only route value to the publisher wallet specified in the original offer. It cannot replay on-chain.
+| Layer | Tools |
+|---|---|
+| Language | TypeScript 5.4 strict, ES2022 target |
+| Runtime | Node 20+ · pnpm 9 workspaces · Turbo |
+| Backend HTTP | Fastify 4 (facilitator, api-gateway) |
+| Frontend | Next.js 15 (App Router) · React 18 · Tailwind 3.4 · Framer Motion · Recharts |
+| State / data | TanStack Query 5 · viem 2 |
+| Auth | Privy embedded wallets · `siwe` (EIP-4361) · HTTP-only cookies · `@fastify/cookie` |
+| Payments | `@circle-fin/x402-batching` (Circle Gateway client + server SDK) |
+| Receipt crypto | viem `signMessage` + canonical JSON; keccak256 over the body |
+| Persistence | Postgres 16 (`pg`) · Redis 7 (`ioredis`) |
+| On-chain reads | viem `publicClient.readContract` against Arc Testnet ERC-8004 registries |
+| Testing | Vitest |
 
 ## Repository layout
 
 ```
 crawlpay/
 ├── apps/
-│   ├── facilitator/           x402 verification + Nanopayments submission
-│   ├── api-gateway/           Receipts, analytics, catalog REST API
-│   └── web-dashboard/         Next.js dashboard
+│   ├── facilitator/           x402 verification · Gateway settle · receipt signing
+│   ├── api-gateway/           Receipts · analytics · publishers · SIWE auth · probe · ERC-8004
+│   └── web-dashboard/         Landing · onboarding · publisher + crawler dashboards
 ├── packages/
-│   ├── types/                 Shared protocol types
-│   ├── receipt-signer/        Receipt sign and verify library
-│   ├── proxy-middleware/      Publisher middleware (Express, Fastify, Next)
-│   └── crawler-sdk/           Crawler SDK
-├── contracts/                 ERC-8004 helpers (Foundry)
-├── infra/                     Docker Compose, Helm charts
-├── scripts/                   Seed data, demo runners, benchmarks
-└── docs/                      Architecture, protocol, operator guides
+│   ├── types/                 Shared protocol types (CrawlPayReceipt, AtomicUsdc, …)
+│   ├── receipt-signer/        Canonical-JSON sign + verify
+│   ├── proxy-middleware/      Drop-in Express middleware for publishers
+│   ├── crawler-sdk/           Buyer SDK over Circle's GatewayClient (budgets, retries, cache)
+│   └── persistence/           Postgres + Redis + in-memory repos
+├── scripts/
+│   ├── smoke/                 End-to-end smoke test against real Circle Gateway
+│   └── demo/                  60-tx demo session runner
+├── infra/                     Docker Compose for Postgres + Redis
+└── docs/                      Architecture, protocol, submission docs
 ```
 
-## Local development
+## Getting started
+
+### Prerequisites
+
+- Node 20+
+- pnpm 9
+- Docker (for local Postgres + Redis)
+- An EOA private key funded with USDC on Arc Testnet — get test USDC from [faucet.circle.com](https://faucet.circle.com) → Arc Testnet
+
+### Setup
 
 ```bash
+git clone https://github.com/StrimzLab/crawlpay
+cd crawlpay
 pnpm install
+
 cp .env.example .env
-pnpm dev
+# Fill: PUBLISHER_ADDRESS, CRAWLER_PRIVATE_KEY, CRAWLPAY_RECEIPT_PRIVATE_KEY
+# Optional: NEXT_PUBLIC_PRIVY_APP_ID (sign in disabled if absent; everything else works)
 ```
 
-Services:
-- Facilitator: `http://localhost:3001`
-- API gateway: `http://localhost:8080`
-- Dashboard: `http://localhost:3000`
+### Bring up infrastructure
 
-See [`docs/development.md`](./docs/development.md) for the full setup, including Circle sandbox credentials and Arc testnet faucets.
+```bash
+pnpm infra:up      # Postgres on :5433, Redis on :6380
+pnpm migrate       # apply schema
+```
 
-## Contributing
+### Verify Circle Gateway reachability
 
-Contributions welcome. Any non-trivial change should start as a GitHub issue first. See [`CONTRIBUTING.md`](./CONTRIBUTING.md) for the PR workflow, coding standards, and commit message conventions.
+```bash
+# Terminal A
+pnpm smoke:seller
+
+# Terminal B
+pnpm smoke:buyer   # deposits 1 USDC into Gateway (one-time) and pays the seller
+```
+
+A passing smoke test proves the full Circle Gateway round-trip on Arc Testnet.
+
+### Run the live stack
+
+Each in its own terminal:
+
+```bash
+pnpm --filter @crawlpay/facilitator dev   # :3001
+pnpm --filter @crawlpay/api-gateway dev   # :8080
+pnpm web:dev                              # :3000
+```
+
+### Generate demo data
+
+```bash
+pnpm demo
+```
+
+Boots a local publisher, runs 60 paid crawls through real Circle Gateway, and persists every receipt to Postgres. Visit `http://localhost:3000/publisher/pub_demoTechnotes` to see the populated dashboard.
+
+### Workspace commands
+
+```bash
+pnpm typecheck                 # tsc --noEmit across all 11 packages
+pnpm test                      # Vitest across packages with tests
+pnpm build                     # Turbo-driven build
+pnpm infra:up    / infra:down  # Docker Compose for Postgres + Redis
+pnpm migrate                   # Apply Postgres schema
+```
+
+## Documentation
+
+- [`docs/SUBMISSION.md`](./docs/SUBMISSION.md) — hackathon submission package
+- [`docs/video-script.md`](./docs/video-script.md) — demo video script
+- [`PRD.md`](./PRD.md) — product requirements doc, long-form architecture and security model
+- [`.env.example`](./.env.example) — canonical env var reference
+
+## Roadmap
+
+| Version | Focus | Status |
+|---|---|---|
+| **v0** (testnet) | Full end-to-end loop on Arc Testnet · Privy onboarding · live dashboards · ERC-8004 reads · 60-tx demo runner | **shipped** |
+| v0.1 | Settlement worker that backfills `onchainTxHash` after Gateway batches land | next |
+| v0.2 | Per-publisher pricing rules (glob → price) · allow/block lists · webhooks | next |
+| v1 | Mainnet on Arc · hosted facilitator with 2.5% fee · Ghost / WordPress plugins | Q3 2026 |
+| v2 | ERC-8004 Reputation Registry writes · discovery API · validator network | Q1 2027 |
+| v3 | Cross-chain settlement via CCTP · streaming subscriptions · deferred-payment scheme | Q3 2027 |
 
 ## License
 
-Business Source License 1.1 (BUSL-1.1). Converts to Apache 2.0 on 2029-04-22. Read the full text in [`LICENSE`](./LICENSE). In plain terms: self-hosting is free forever; running CrawlPay as a paid service for other people requires a license until the change date.
+[Apache License 2.0](./LICENSE). OSI-approved, includes a patent grant.
 
 ## References
 
-- x402 specification — https://x402.org
-- Circle Nanopayments — https://circle.com/nanopayments
-- Arc documentation — https://docs.arc.network
-- ERC-8004 specification — https://eips.ethereum.org/EIPS/eip-8004
-- EIP-3009 specification — https://eips.ethereum.org/EIPS/eip-3009
+- [x402 specification](https://x402.org) — HTTP-native payment negotiation
+- [Circle Gateway docs](https://developers.circle.com/gateway) — Nanopayments product (off-chain batching, on-chain settle)
+- [Arc documentation](https://docs.arc.io) — Arc L1 network, USDC-as-gas, sub-second finality
+- [EIP-3009](https://eips.ethereum.org/EIPS/eip-3009) — `TransferWithAuthorization` for gasless USDC
+- [EIP-4361](https://eips.ethereum.org/EIPS/eip-4361) — Sign-In with Ethereum (used for dashboard auth)
+- [ERC-8004](https://eips.ethereum.org/EIPS/eip-8004) — agent identity + reputation registries
