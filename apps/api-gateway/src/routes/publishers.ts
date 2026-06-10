@@ -7,10 +7,14 @@ import {
   type PublisherRepository,
   type ReceiptRepository,
 } from '@crawlpay/persistence';
+import type { AuthService } from '../services/auth-service';
+import type { ProbeService } from '../services/probe-service';
+import { requireAuth } from '../middleware/require-auth';
 
 const ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
 const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 100;
+const DOMAIN_RE = /^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$/i;
 
 interface ListQuery {
   active?: string;
@@ -20,16 +24,22 @@ interface ListQuery {
 }
 
 interface CreateBody {
+  /** Optional client-supplied id; if omitted we derive from domain. */
   id?: unknown;
+  /** Domain the publisher wants to monetize. */
   domain?: unknown;
+  /** Optional override; otherwise we use the session's address. */
   walletAddress?: unknown;
   network?: unknown;
   defaultPriceAtomic?: unknown;
-  erc8004AgentId?: unknown;
   description?: unknown;
-  minReputationScore?: unknown;
-  robotsTxtAware?: unknown;
-  active?: unknown;
+}
+
+export interface PublishersRoutesDeps {
+  publishers: PublisherRepository;
+  receipts: ReceiptRepository;
+  auth: AuthService;
+  probe: ProbeService;
 }
 
 function isAddress(v: unknown): v is Address {
@@ -44,11 +54,26 @@ function asPositiveInt(s: string | undefined, fallback: number, max?: number): n
   return n;
 }
 
-export function publishersRoutes(
-  app: FastifyInstance,
-  publishers: PublisherRepository,
-  receipts: ReceiptRepository,
-): void {
+/**
+ * Slugify a domain into a stable publisher id. Strips `www.`, takes the
+ * leading label, and camel-cases hyphenated parts:
+ *   technotes.example.com → pub_technotes
+ *   foo-bar.io           → pub_fooBar
+ *   www.crawlers.dev     → pub_crawlers
+ */
+function makePublisherId(domain: string): string {
+  const main = domain.toLowerCase().replace(/^www\./, '').split('.')[0] ?? 'site';
+  const parts = main.split(/[-_]/).filter(Boolean);
+  const camel = parts
+    .map((p, i) => (i === 0 ? p : p.charAt(0).toUpperCase() + p.slice(1)))
+    .join('');
+  const clean = camel.replace(/[^a-zA-Z0-9]/g, '').slice(0, 32) || 'site';
+  return `pub_${clean}`;
+}
+
+export function publishersRoutes(app: FastifyInstance, deps: PublishersRoutesDeps): void {
+  const { publishers, receipts, auth, probe } = deps;
+
   app.get<{ Querystring: ListQuery }>('/publishers', async (req, reply) => {
     const filter: Parameters<PublisherRepository['list']>[0] = {};
     if (req.query.active !== undefined) {
@@ -70,52 +95,70 @@ export function publishersRoutes(
     return reply.send({ publishers: items, pagination: { total, limit, offset } });
   });
 
-  // v0: no auth. v1 should gate this behind an API key.
-  app.post('/publishers', async (req, reply) => {
-    const body = (req.body ?? {}) as CreateBody;
+  /**
+   * Create a publisher. Requires a signed-in session — the session's address
+   * becomes the publisher's `walletAddress` (where Circle Gateway routes
+   * settled funds).
+   *
+   * Receipt-signing keys are NOT generated here; the dashboard generates
+   * them client-side via viem so the secret never touches the server.
+   */
+  app.post(
+    '/publishers',
+    { preHandler: requireAuth(auth) },
+    async (req, reply) => {
+      const sessionAddress = req.authAddress!;
+      const body = (req.body ?? {}) as CreateBody;
 
-    if (typeof body.id !== 'string' || body.id.length === 0) {
-      return reply.code(400).send({ error: 'id required (non-empty string)' });
-    }
-    if (typeof body.domain !== 'string' || body.domain.length === 0) {
-      return reply.code(400).send({ error: 'domain required (non-empty string)' });
-    }
-    if (!isAddress(body.walletAddress)) {
-      return reply.code(400).send({ error: 'walletAddress required (0x-prefixed address)' });
-    }
-    if (body.network !== undefined && body.network !== 'arcTestnet') {
-      return reply.code(400).send({ error: 'network must be "arcTestnet"' });
-    }
+      if (typeof body.domain !== 'string' || !DOMAIN_RE.test(body.domain.trim())) {
+        return reply.code(400).send({ error: 'invalid_domain', detail: 'expected e.g. example.com' });
+      }
 
-    const input: CreatePublisherInput = {
-      id: body.id,
-      domain: body.domain,
-      walletAddress: body.walletAddress,
-      network: (body.network as Network | undefined) ?? 'arcTestnet',
-    };
-    if (typeof body.defaultPriceAtomic === 'string' || typeof body.defaultPriceAtomic === 'number') {
+      // Wallet defaults to the session's address. If the client supplied one,
+      // it must match — we never let a logged-in user create a publisher
+      // record pointing at someone else's wallet.
+      if (body.walletAddress !== undefined) {
+        if (!isAddress(body.walletAddress)) {
+          return reply.code(400).send({ error: 'invalid_wallet_address' });
+        }
+        if (body.walletAddress.toLowerCase() !== sessionAddress.toLowerCase()) {
+          return reply.code(403).send({ error: 'wallet_mismatch', detail: 'walletAddress must match your signed-in address' });
+        }
+      }
+
+      const domain = body.domain.trim().toLowerCase();
+      const id =
+        typeof body.id === 'string' && body.id.length > 0 ? body.id : makePublisherId(domain);
+
+      const input: CreatePublisherInput = {
+        id,
+        domain,
+        walletAddress: sessionAddress,
+        network: 'arcTestnet',
+      };
+
+      if (typeof body.defaultPriceAtomic === 'string' || typeof body.defaultPriceAtomic === 'number') {
+        try {
+          input.defaultPriceAtomic = atomicUsdc(BigInt(body.defaultPriceAtomic));
+        } catch (err) {
+          return reply
+            .code(400)
+            .send({ error: 'invalid_default_price', detail: (err as Error).message });
+        }
+      }
+      if (typeof body.description === 'string') input.description = body.description;
+
       try {
-        input.defaultPriceAtomic = atomicUsdc(BigInt(body.defaultPriceAtomic));
+        const created = await publishers.create(input);
+        return reply.code(201).send({ publisher: created });
       } catch (err) {
-        return reply.code(400).send({ error: `invalid defaultPriceAtomic: ${(err as Error).message}` });
+        if (err instanceof PublisherAlreadyExistsError) {
+          return reply.code(409).send({ error: 'already_exists', field: err.field, value: err.value });
+        }
+        throw err;
       }
-    }
-    if (typeof body.erc8004AgentId === 'string') input.erc8004AgentId = body.erc8004AgentId;
-    if (typeof body.description === 'string') input.description = body.description;
-    if (typeof body.minReputationScore === 'number') input.minReputationScore = body.minReputationScore;
-    if (typeof body.robotsTxtAware === 'boolean') input.robotsTxtAware = body.robotsTxtAware;
-    if (typeof body.active === 'boolean') input.active = body.active;
-
-    try {
-      const created = await publishers.create(input);
-      return reply.code(201).send({ publisher: created });
-    } catch (err) {
-      if (err instanceof PublisherAlreadyExistsError) {
-        return reply.code(409).send({ error: err.message, field: err.field, value: err.value });
-      }
-      throw err;
-    }
-  });
+    },
+  );
 
   app.get<{ Params: { id: string } }>('/publishers/:id', async (req, reply) => {
     const publisher = await publishers.get(req.params.id);
@@ -143,6 +186,27 @@ export function publishersRoutes(
         receipts: items,
         pagination: { total, limit, offset },
       });
+    },
+  );
+
+  /**
+   * Server-side integration probe. Auth required AND the session's address
+   * must match the publisher's walletAddress — only the owner can probe
+   * their own domain through this endpoint.
+   */
+  app.post<{ Params: { id: string } }>(
+    '/publishers/:id/probe',
+    { preHandler: requireAuth(auth) },
+    async (req, reply) => {
+      const publisher = await publishers.get(req.params.id);
+      if (!publisher) return reply.code(404).send({ error: 'publisher not found' });
+
+      if (publisher.walletAddress.toLowerCase() !== req.authAddress!.toLowerCase()) {
+        return reply.code(403).send({ error: 'not_owner' });
+      }
+
+      const result = await probe.probePublisher(publisher.domain);
+      return reply.send(result);
     },
   );
 }

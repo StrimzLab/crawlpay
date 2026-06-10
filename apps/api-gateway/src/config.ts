@@ -5,7 +5,16 @@ export interface ApiGatewayConfig {
   logLevel: string;
   network: Network;
   databaseUrl?: string;
+  redisUrl?: string;
   facilitatorUrl?: string;
+  /** Arc HTTP RPC for on-chain reads (ERC-8004 reputation, etc.). */
+  arcRpcUrl: string;
+  siwe: {
+    /** Domain that must match the SIWE message's `domain` field. */
+    domain: string;
+    /** Allowed EVM chain IDs for SIWE messages. Defaults to Arc Testnet. */
+    allowedChainIds: number[];
+  };
 }
 
 const SUPPORTED_NETWORKS: readonly Network[] = ['arcTestnet'];
@@ -23,11 +32,26 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiGatewayConf
     );
   }
 
+  const allowedChainIds = (env.SIWE_ALLOWED_CHAIN_IDS ?? '5042002')
+    .split(',')
+    .map((s) => Number(s.trim()))
+    .filter((n) => Number.isFinite(n) && n > 0);
+
+  if (allowedChainIds.length === 0) {
+    throw new Error('SIWE_ALLOWED_CHAIN_IDS must contain at least one valid chain ID');
+  }
+
   return {
     port,
     logLevel: env.LOG_LEVEL ?? 'info',
     network,
     databaseUrl: env.DATABASE_URL || undefined,
+    redisUrl: env.REDIS_URL || undefined,
     facilitatorUrl: env.NEXT_PUBLIC_FACILITATOR_URL || undefined,
+    arcRpcUrl: env.ARC_RPC_URL ?? 'https://rpc.testnet.arc.network',
+    siwe: {
+      domain: env.SIWE_DOMAIN ?? 'localhost:3000',
+      allowedChainIds,
+    },
   };
 }
